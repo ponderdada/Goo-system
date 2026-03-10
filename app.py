@@ -31,7 +31,12 @@ _cache: dict = {
 _cache_lock = threading.Lock()
 
 
-def load_config(path: str = "config/settings.yaml") -> dict:
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def load_config(path: str | None = None) -> dict:
+    if path is None:
+        path = os.path.join(_BASE_DIR, "config", "settings.yaml")
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
@@ -438,37 +443,36 @@ def api_status():
         }
 
 
-def create_app() -> Flask:
-    """建立 Flask app 並啟動背景排程。"""
-    config = load_config()
-    interval = config.get("web", {}).get("refresh_interval_seconds", 3600)
-
-    scheduler = threading.Thread(
-        target=background_scheduler,
-        args=(interval,),
-        daemon=True,
-    )
-    scheduler.start()
-
-    return app
+_scheduler_started = False
 
 
-def _auto_start() -> None:
-    """模組載入時自動啟動背景排程（供 gunicorn 使用）。"""
-    config = load_config()
-    interval = config.get("web", {}).get("refresh_interval_seconds", 3600)
-    scheduler = threading.Thread(target=background_scheduler, args=(interval,), daemon=True)
-    scheduler.start()
-
-
-# gunicorn 透過 app:app 取得此 instance，preload 時自動啟動排程
-_auto_start()
+@app.before_request
+def _ensure_scheduler():
+    """第一個 HTTP 請求到來時才啟動背景排程（避免 import 時崩潰）。"""
+    global _scheduler_started
+    if _scheduler_started:
+        return
+    _scheduler_started = True
+    try:
+        config = load_config()
+        interval = config.get("web", {}).get("refresh_interval_seconds", 3600)
+    except Exception:
+        interval = 3600
+    t = threading.Thread(target=background_scheduler, args=(interval,), daemon=True)
+    t.start()
 
 
 if __name__ == "__main__":
     config = load_config()
     web_cfg = config.get("web", {})
     port = web_cfg.get("port", 5000)
+
+    _scheduler_started = True
+    threading.Thread(
+        target=background_scheduler,
+        args=(web_cfg.get("refresh_interval_seconds", 3600),),
+        daemon=True,
+    ).start()
 
     print(f"\n  投資決策儀表板已啟動：http://localhost:{port}\n")
     app.run(host="0.0.0.0", port=port, debug=False)
