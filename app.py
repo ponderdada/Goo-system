@@ -453,11 +453,22 @@ def create_app() -> Flask:
     return app
 
 
+def _auto_start() -> None:
+    """模組載入時自動啟動背景排程（供 gunicorn 使用）。"""
+    config = load_config()
+    interval = config.get("web", {}).get("refresh_interval_seconds", 3600)
+    scheduler = threading.Thread(target=background_scheduler, args=(interval,), daemon=True)
+    scheduler.start()
+
+
+# gunicorn 透過 app:app 取得此 instance，preload 時自動啟動排程
+_auto_start()
+
+
 if __name__ == "__main__":
     config = load_config()
     web_cfg = config.get("web", {})
     port = web_cfg.get("port", 5000)
 
-    create_app()
     print(f"\n  投資決策儀表板已啟動：http://localhost:{port}\n")
     app.run(host="0.0.0.0", port=port, debug=False)
