@@ -9,10 +9,13 @@ import pandas as pd
 import yfinance as yf
 
 
+_TIMEOUT = 30  # 每次 yfinance 請求的最長等待秒數
+
+
 def get_vix(period: str = "5d") -> float:
     """取得最新 VIX 收盤值。"""
     vix = yf.Ticker("^VIX")
-    hist = vix.history(period=period)
+    hist = vix.history(period=period, timeout=_TIMEOUT)
     if hist.empty:
         raise RuntimeError("無法取得 VIX 資料")
     return float(hist["Close"].iloc[-1])
@@ -21,7 +24,7 @@ def get_vix(period: str = "5d") -> float:
 def get_index_history(symbol: str = "^TWII", period: str = "1y") -> pd.DataFrame:
     """取得大盤指數歷史資料。"""
     ticker = yf.Ticker(symbol)
-    hist = ticker.history(period=period)
+    hist = ticker.history(period=period, timeout=_TIMEOUT)
     if hist.empty:
         raise RuntimeError(f"無法取得 {symbol} 資料")
     return hist
@@ -38,7 +41,7 @@ def is_above_ma(hist: pd.DataFrame, window: int = 200) -> bool:
 def get_stock_history(symbol: str, period: str = "6mo") -> pd.DataFrame:
     """取得個股歷史資料。"""
     ticker = yf.Ticker(symbol)
-    hist = ticker.history(period=period)
+    hist = ticker.history(period=period, timeout=_TIMEOUT)
     return hist
 
 
@@ -46,7 +49,7 @@ def get_batch_history(symbols: list[str], period: str = "3mo") -> dict[str, pd.D
     """批次取得多檔股票歷史資料（使用 yfinance 批次下載加速）。"""
     result: dict[str, pd.DataFrame] = {}
     try:
-        data = yf.download(symbols, period=period, group_by="ticker", threads=True)
+        data = yf.download(symbols, period=period, group_by="ticker", threads=True, timeout=_TIMEOUT)
         if len(symbols) == 1:
             # yf.download 單檔時不會按 ticker 分組
             result[symbols[0]] = data if not data.empty else pd.DataFrame()
