@@ -43,13 +43,28 @@ def get_stock_history(symbol: str, period: str = "6mo") -> pd.DataFrame:
 
 
 def get_batch_history(symbols: list[str], period: str = "3mo") -> dict[str, pd.DataFrame]:
-    """批次取得多檔股票歷史資料。"""
+    """批次取得多檔股票歷史資料（使用 yfinance 批次下載加速）。"""
     result: dict[str, pd.DataFrame] = {}
-    for sym in symbols:
-        try:
-            result[sym] = get_stock_history(sym, period)
-        except Exception:
-            continue
+    try:
+        data = yf.download(symbols, period=period, group_by="ticker", threads=True)
+        if len(symbols) == 1:
+            # yf.download 單檔時不會按 ticker 分組
+            result[symbols[0]] = data if not data.empty else pd.DataFrame()
+        else:
+            for sym in symbols:
+                try:
+                    df = data[sym].dropna(how="all")
+                    if not df.empty:
+                        result[sym] = df
+                except (KeyError, Exception):
+                    continue
+    except Exception:
+        # 批次失敗時退回逐一下載
+        for sym in symbols:
+            try:
+                result[sym] = get_stock_history(sym, period)
+            except Exception:
+                continue
     return result
 
 

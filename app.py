@@ -433,6 +433,12 @@ def dashboard():
         )
 
 
+@app.route("/healthz")
+def healthz():
+    """Render 健康檢查端點 — 立即回應，不等分析完成。"""
+    return {"status": "ok"}, 200
+
+
 @app.route("/api/status")
 def api_status():
     with _cache_lock:
