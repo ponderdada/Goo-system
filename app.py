@@ -55,15 +55,35 @@ def run_analysis() -> None:
             _cache["updated_at"] = dt.datetime.now()
             _cache["error"] = None
     except Exception as e:
+        # 只記錄簡潔的錯誤訊息，不顯示完整 traceback
+        err_str = str(e)
+        if "rate limit" in err_str.lower() or "too many requests" in err_str.lower():
+            friendly = "Yahoo Finance 暫時限制了請求次數，系統將在幾分鐘後自動重試。"
+        else:
+            friendly = f"分析時發生錯誤：{err_str}"
         with _cache_lock:
-            _cache["error"] = f"{e}\n{traceback.format_exc()}"
+            _cache["error"] = friendly
             _cache["updated_at"] = dt.datetime.now()
 
 
+_RETRY_INTERVALS = [60, 180, 300]  # 失敗後的重試等待秒數（1分、3分、5分）
+
+
 def background_scheduler(interval_seconds: int = 3600) -> None:
-    """背景排程：每隔指定秒數自動更新分析。"""
+    """背景排程：每隔指定秒數自動更新分析，失敗時自動重試。"""
     while True:
         run_analysis()
+        with _cache_lock:
+            has_error = _cache["error"] is not None
+            has_data = _cache["cash"] is not None
+        if has_error and not has_data:
+            # 還沒成功取得過資料，短間隔重試
+            for wait in _RETRY_INTERVALS:
+                time.sleep(wait)
+                run_analysis()
+                with _cache_lock:
+                    if _cache["cash"] is not None:
+                        break  # 成功了
         time.sleep(interval_seconds)
 
 
