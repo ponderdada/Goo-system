@@ -1,0 +1,80 @@
+# ============================================================
+# 投資決策系統設定檔
+# ============================================================
+
+# --- 模組一：現金 vs 投資配置 ---
+cash_allocation:
+  # VIX 恐慌指數閾值（越高代表市場越恐慌，應保留更多現金）
+  vix_thresholds:
+    low: 15       # VIX < 15: 低波動，積極投資
+    medium: 25    # 15 <= VIX < 25: 中等波動
+    high: 35      # VIX >= 35: 高波動，保守持現
+
+  # 對應的現金保留比例
+  cash_ratios:
+    low_vix: 0.10       # 低波動時保留 10% 現金
+    medium_vix: 0.30    # 中波動時保留 30% 現金
+    high_vix: 0.50      # 高波動時保留 50% 現金
+    extreme_vix: 0.70   # 極端恐慌時保留 70% 現金
+
+  # 技術面調整：大盤均線判斷
+  # 大盤高於 200 日均線 => 多頭趨勢，可減少現金
+  # 大盤低於 200 日均線 => 空頭趨勢，應增加現金
+  trend_adjustment: 0.10  # 趨勢調整幅度
+
+# --- 模組二：指數 vs 個股配置 ---
+index_vs_stock:
+  # 基準配置（指數佔投資部位比例）
+  base_index_ratio: 0.60
+
+  # 市場寬度指標：漲跌家數比
+  # 若多數個股上漲 => 市場健康，可多配個股
+  # 若僅少數權值股撐盤 => 選股困難，應多配指數
+  breadth_thresholds:
+    healthy: 0.60    # 漲跌比 > 60% 為健康
+    narrow: 0.40     # 漲跌比 < 40% 為窄幅
+
+  breadth_adjustments:
+    healthy: -0.15   # 市場健康時，指數比例 -15%（多配個股）
+    narrow: 0.15     # 窄幅市場時，指數比例 +15%（多配指數）
+
+  # 個股波動度調整
+  stock_volatility_cap: 0.50  # 個股配置上限 50%
+
+# --- 模組三：新聞驅動選股 ---
+news_stock_picker:
+  # 追蹤的股票池（台股為主，可擴充美股）
+  watch_list:
+    # 台股 ETF / 個股（使用 Yahoo Finance 代碼）
+    - "0050.TW"   # 元大台灣50
+    - "2330.TW"   # 台積電
+    - "2317.TW"   # 鴻海
+    - "2454.TW"   # 聯發科
+    - "2881.TW"   # 富邦金
+    - "2882.TW"   # 國泰金
+    - "2303.TW"   # 聯電
+    - "3711.TW"   # 日月光投控
+    - "2412.TW"   # 中華電
+    - "2308.TW"   # 台達電
+
+  # 分析回溯期間（天數）
+  lookback_days: 90
+
+  # 篩選條件
+  selection:
+    min_news_score: 0.6        # 最低新聞正面分數
+    min_momentum_score: 0.5    # 最低動能分數
+    max_picks: 5               # 最多推薦幾檔
+
+# --- 大盤指數設定 ---
+market:
+  index_symbol: "^TWII"       # 台灣加權指數
+  index_etf: "0050.TW"        # 追蹤大盤的 ETF
+  vix_symbol: "^VIX"          # VIX 恐慌指數
+  risk_free_rate: 0.015       # 無風險利率（台灣定存約 1.5%）
+
+# --- 報告設定 ---
+report:
+  output_dir: "reports"
+  format: "html"               # html 或 text
+  auto_open: true              # 產生後自動開啟瀏覽器
