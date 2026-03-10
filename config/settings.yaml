@@ -78,3 +78,8 @@ report:
   output_dir: "reports"
   format: "html"               # html 或 text
   auto_open: true              # 產生後自動開啟瀏覽器
+
+# --- Web 伺服器設定 ---
+web:
+  port: 5000                   # 監聽埠號
+  refresh_interval_seconds: 3600  # 自動重新分析間隔（秒），預設 1 小時
