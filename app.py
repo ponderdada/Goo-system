@@ -16,15 +16,15 @@ import traceback
 import yaml
 from flask import Flask, render_template_string
 
-from src.engines import cash_allocation, index_vs_stock, stock_picker
+from src.engines import cash_allocation, industry_report, stock_picker
 
 app = Flask(__name__)
 
 # --- 快取機制 ---
 _cache: dict = {
     "cash": None,
-    "idx": None,
     "picks": None,
+    "report": None,
     "updated_at": None,
     "error": None,
 }
@@ -46,12 +46,18 @@ def run_analysis() -> None:
     try:
         config = load_config()
         cash = cash_allocation.decide(config)
-        idx = index_vs_stock.decide(config)
         picks = stock_picker.decide(config)
+        # 為排名第一的個股生成產業分析報告
+        report = None
+        if picks.candidates:
+            top = picks.candidates[0]
+            report = industry_report.generate(
+                top.symbol, top.news_score, top.momentum_score
+            )
         with _cache_lock:
             _cache["cash"] = cash
-            _cache["idx"] = idx
             _cache["picks"] = picks
+            _cache["report"] = report
             _cache["updated_at"] = dt.datetime.now()
             _cache["error"] = None
     except Exception as e:
@@ -311,16 +317,12 @@ MOBILE_TEMPLATE = """\
 <!-- ===== 總覽 ===== -->
 <div class="summary-card">
   <div class="summary-row">
-    <span class="summary-label">現金保留</span>
+    <span class="summary-label">建議現金保留</span>
     <span class="summary-value" style="color: var(--muted)">{{ (cash.cash_ratio * 100)|round }}%</span>
   </div>
   <div class="summary-row">
-    <span class="summary-label">指數 ETF</span>
-    <span class="summary-value" style="color: var(--purple)">{{ (cash.invest_ratio * idx.index_ratio * 100)|round(1) }}%</span>
-  </div>
-  <div class="summary-row">
-    <span class="summary-label">個股</span>
-    <span class="summary-value" style="color: var(--green)">{{ (cash.invest_ratio * idx.stock_ratio * 100)|round(1) }}%</span>
+    <span class="summary-label">建議投資比例</span>
+    <span class="summary-value" style="color: var(--accent)">{{ (cash.invest_ratio * 100)|round }}%</span>
   </div>
 </div>
 
@@ -382,66 +384,18 @@ MOBILE_TEMPLATE = """\
   <div class="note" style="font-size: 0.72rem; color: var(--muted);">跌越深 → 投入越多（買在回檔）</div>
 </div>
 
-<!-- ===== 綜合現金配置 ===== -->
+<!-- ===== 個股排名 ===== -->
 <div class="card">
   <div class="card-header">
-    <div class="card-icon" style="background: rgba(56,189,248,0.15);">⚖️</div>
-    <span class="card-title">綜合現金配置</span>
-  </div>
-  <div class="bar-wrapper">
-    <div class="bar-track">
-      <div class="bar-seg" style="width: {{ (cash.cash_ratio * 100)|round }}%; background: var(--muted);">
-        現金 {{ (cash.cash_ratio * 100)|round }}%</div>
-      <div class="bar-seg" style="width: {{ (cash.invest_ratio * 100)|round }}%; background: var(--accent);">
-        投資 {{ (cash.invest_ratio * 100)|round }}%</div>
-    </div>
-  </div>
-  <div class="note">{{ cash.reasoning }}</div>
-</div>
-
-<!-- ===== 模組二 ===== -->
-<div class="card">
-  <div class="card-header">
-    <div class="card-icon" style="background: rgba(167,139,250,0.15);">📊</div>
-    <span class="card-title">指數 vs 個股</span>
-  </div>
-  <div class="metrics">
-    <div class="pill">
-      <div class="pill-label">市場寬度</div>
-      <div class="pill-value">{{ idx.market_breadth if idx.market_breadth is not none else 'N/A' }}</div>
-    </div>
-    <div class="pill">
-      <div class="pill-label">評級</div>
-      <div class="pill-value">{{ idx.breadth_level }}</div>
-    </div>
-    <div class="pill">
-      <div class="pill-label">波動率</div>
-      <div class="pill-value">{{ (idx.avg_stock_volatility * 100)|round(1) }}%</div>
-    </div>
-  </div>
-  <div class="bar-wrapper">
-    <div class="bar-track">
-      <div class="bar-seg" style="width: {{ (idx.index_ratio * 100)|round }}%; background: var(--purple);">
-        指數 {{ (idx.index_ratio * 100)|round }}%</div>
-      <div class="bar-seg" style="width: {{ (idx.stock_ratio * 100)|round }}%; background: var(--green);">
-        個股 {{ (idx.stock_ratio * 100)|round }}%</div>
-    </div>
-  </div>
-  <div class="note">{{ idx.reasoning }}</div>
-</div>
-
-<!-- ===== 模組三 ===== -->
-<div class="card">
-  <div class="card-header">
-    <div class="card-icon" style="background: rgba(74,222,128,0.15);">🔍</div>
-    <span class="card-title">推薦個股</span>
+    <div class="card-icon" style="background: rgba(74,222,128,0.15);">🏆</div>
+    <span class="card-title">個股排名</span>
   </div>
   <div class="note" style="margin-bottom: 0.8rem;">{{ picks.reasoning }}</div>
   <div class="stock-list">
     {% for c in picks.candidates %}
     <div class="stock-item">
       <div class="stock-left">
-        <div class="stock-rank {% if c in picks.picks %}top{% else %}normal{% endif %}">
+        <div class="stock-rank {% if loop.index <= 3 %}top{% else %}normal{% endif %}">
           {{ loop.index }}</div>
         <div>
           <div class="stock-symbol">{{ c.symbol }}</div>
@@ -449,7 +403,7 @@ MOBILE_TEMPLATE = """\
         </div>
       </div>
       <div class="stock-right">
-        <div class="stock-score" style="color: {% if c in picks.picks %}var(--green){% else %}var(--text){% endif %}">
+        <div class="stock-score" style="color: {% if loop.index <= 3 %}var(--green){% else %}var(--text){% endif %}">
           {{ c.composite_score }}</div>
         <div class="stock-momentum" style="color: {% if c.momentum_score > 0 %}var(--green){% else %}var(--red){% endif %}">
           {{ (c.momentum_score * 100)|round(1) }}%</div>
@@ -458,6 +412,75 @@ MOBILE_TEMPLATE = """\
     {% endfor %}
   </div>
 </div>
+
+<!-- ===== 產業分析報告 ===== -->
+{% if report %}
+<div class="card">
+  <div class="card-header">
+    <div class="card-icon" style="background: rgba(167,139,250,0.15);">📋</div>
+    <span class="card-title">{{ report.symbol }} 產業分析報告</span>
+  </div>
+
+  <div class="metrics">
+    <div class="pill">
+      <div class="pill-label">產業</div>
+      <div class="pill-value" style="font-size: 0.85rem;">{{ report.industry }}</div>
+    </div>
+    <div class="pill">
+      <div class="pill-label">目前股價</div>
+      <div class="pill-value" style="font-size: 0.85rem;">{{ '{:,.1f}'.format(report.current_price) }}</div>
+    </div>
+  </div>
+
+  <div style="margin-bottom: 1rem;">
+    <div class="note" style="font-size: 0.82rem; color: var(--text); line-height: 1.7;">{{ report.analysis }}</div>
+  </div>
+
+  <div style="font-size: 0.82rem; font-weight: 600; color: var(--accent); margin-bottom: 0.6rem;">預估投資報酬率</div>
+
+  <div class="stock-list">
+    <div class="stock-item">
+      <div class="stock-left">
+        <div class="stock-rank" style="background: var(--green);">+</div>
+        <div>
+          <div class="stock-symbol" style="font-size: 0.85rem;">樂觀劇本</div>
+          <div class="stock-reason">{{ report.bull_reason }}</div>
+        </div>
+      </div>
+      <div class="stock-right">
+        <div class="stock-score" style="color: var(--green);">+{{ report.bull_return }}%</div>
+        <div class="stock-momentum" style="color: var(--muted);">目標 {{ '{:,.0f}'.format(report.bull_target) }}</div>
+      </div>
+    </div>
+    <div class="stock-item">
+      <div class="stock-left">
+        <div class="stock-rank" style="background: var(--orange);">=</div>
+        <div>
+          <div class="stock-symbol" style="font-size: 0.85rem;">中性劇本</div>
+          <div class="stock-reason">{{ report.base_reason }}</div>
+        </div>
+      </div>
+      <div class="stock-right">
+        <div class="stock-score" style="color: var(--orange);">+{{ report.base_return }}%</div>
+        <div class="stock-momentum" style="color: var(--muted);">目標 {{ '{:,.0f}'.format(report.base_target) }}</div>
+      </div>
+    </div>
+    <div class="stock-item">
+      <div class="stock-left">
+        <div class="stock-rank" style="background: var(--red);">-</div>
+        <div>
+          <div class="stock-symbol" style="font-size: 0.85rem;">悲觀劇本</div>
+          <div class="stock-reason">{{ report.bear_reason }}</div>
+        </div>
+      </div>
+      <div class="stock-right">
+        <div class="stock-score" style="color: var(--red);">{{ report.bear_return }}%</div>
+        <div class="stock-momentum" style="color: var(--muted);">目標 {{ '{:,.0f}'.format(report.bear_target) }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {% else %}
 
@@ -488,8 +511,8 @@ def dashboard():
         return render_template_string(
             MOBILE_TEMPLATE,
             cash=_cache["cash"],
-            idx=_cache["idx"],
             picks=_cache["picks"],
+            report=_cache["report"],
             updated_at=_cache["updated_at"],
             error=_cache["error"],
         )

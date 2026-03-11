@@ -1,7 +1,8 @@
-"""模組三：新聞驅動個股篩選引擎。
+"""模組：個股排名引擎。
 
-從觀察清單中，挑選出近一季因消息面（以價量異常為代理指標）
-帶動上漲機率最大的個股。
+根據消息面驅動（價量異常）排序個股，主要排序依據：
+  1. 消息面分數 — 最近一季最容易因消息帶動上漲的個股
+  2. 預估投報率 — 動能分數作為投報代理指標
 """
 
 from __future__ import annotations
@@ -20,8 +21,8 @@ from src.data.news_sentiment import compute_news_proxy_score
 @dataclass
 class StockCandidate:
     symbol: str
-    news_score: float       # 新聞/消息驅動分數 0~1
-    momentum_score: float   # 動能分數（近季報酬率）
+    news_score: float       # 消息面驅動分數 0~1（主排序）
+    momentum_score: float   # 動能分數（近季報酬率，次排序）
     rsi: float
     volatility: float
     composite_score: float  # 綜合得分
@@ -36,13 +37,11 @@ class StockPickResult:
 
 
 def decide(config: dict) -> StockPickResult:
-    """執行個股篩選。"""
+    """執行個股排名：消息面為主、預估投報為次。"""
     cfg = config["news_stock_picker"]
     watch_list = cfg["watch_list"]
     lookback = cfg["lookback_days"]
-    sel = cfg["selection"]
 
-    # 取得所有股票歷史
     all_hist = get_batch_history(watch_list, period="6mo")
 
     candidates: list[StockCandidate] = []
@@ -59,29 +58,30 @@ def decide(config: dict) -> StockPickResult:
         # 動能正規化到 0~1
         momentum_norm = max(min((momentum + 0.3) / 0.6, 1.0), 0.0)
 
-        # RSI 適中加分（40~70 為佳），過高或過低扣分
+        # RSI 適中加分（40~70 為佳）
         if 40 <= rsi <= 70:
-            rsi_bonus = 0.1
+            rsi_bonus = 0.05
         elif rsi > 80 or rsi < 20:
-            rsi_bonus = -0.15
+            rsi_bonus = -0.10
         else:
             rsi_bonus = 0.0
 
+        # 綜合分數：消息面 55% + 動能 30% + 低波動 15%
         composite = (
-            news_score * 0.40
-            + momentum_norm * 0.40
-            + 0.20 * (1.0 - min(vol, 1.0))  # 低波動加分
+            news_score * 0.55
+            + momentum_norm * 0.30
+            + 0.15 * (1.0 - min(vol, 1.0))
             + rsi_bonus
         )
         composite = round(max(min(composite, 1.0), 0.0), 4)
 
         reason_parts = []
-        if news_score >= sel["min_news_score"]:
+        if news_score >= 0.4:
             reason_parts.append(f"消息面活躍({news_score:.2f})")
         if momentum > 0:
-            reason_parts.append(f"正向動能({momentum:+.1%})")
+            reason_parts.append(f"動能 {momentum:+.1%}")
         if 40 <= rsi <= 70:
-            reason_parts.append(f"RSI 健康({rsi:.0f})")
+            reason_parts.append(f"RSI {rsi:.0f}")
 
         candidates.append(StockCandidate(
             symbol=symbol,
@@ -90,26 +90,18 @@ def decide(config: dict) -> StockPickResult:
             rsi=round(rsi, 1),
             volatility=round(vol, 4) if vol == vol else 0.0,
             composite_score=composite,
-            reason="、".join(reason_parts) if reason_parts else "未達篩選門檻",
+            reason="、".join(reason_parts) if reason_parts else "消息面平淡",
         ))
 
-    # 排序
-    candidates.sort(key=lambda c: c.composite_score, reverse=True)
+    # 排序：主要依消息面分數，次要依動能分數
+    candidates.sort(key=lambda c: (c.news_score, c.momentum_score), reverse=True)
 
-    # 篩選
-    picks = [
-        c for c in candidates
-        if c.news_score >= sel["min_news_score"]
-        and c.momentum_score >= sel["min_momentum_score"]
-    ][:sel["max_picks"]]
-
-    # 若篩選後不足，取綜合分數最高的幾檔
-    if not picks:
-        picks = candidates[:sel["max_picks"]]
+    # 前 5 名為推薦
+    picks = candidates[:cfg.get("selection", {}).get("max_picks", 5)]
 
     reasoning = (
         f"從 {len(watch_list)} 檔觀察清單中分析 {len(candidates)} 檔，"
-        f"篩選出 {len(picks)} 檔推薦個股。"
+        f"以消息面驅動為主要排序、預估投報為次要排序。"
     )
 
     return StockPickResult(
