@@ -133,3 +133,26 @@ def compute_rsi(hist: pd.DataFrame, window: int = 14) -> float:
     loss = (-delta.where(delta < 0, 0.0)).rolling(window=window).mean()
     rs = gain.iloc[-1] / loss.iloc[-1] if loss.iloc[-1] != 0 else float("inf")
     return float(100 - (100 / (1 + rs)))
+
+
+def compute_drawdown_from_recent_high(hist: pd.DataFrame, lookback_days: int = 40) -> tuple[float, float, float]:
+    """計算從近期高點的回檔幅度。
+
+    Args:
+        hist: 包含 Close 欄位的歷史資料
+        lookback_days: 往回看幾個交易日找高點（40日 ≈ 2個月）
+
+    Returns:
+        (drawdown_pct, recent_high, current_price)
+        drawdown_pct: 回檔幅度（0~1，0 表示在高點，0.15 表示跌了 15%）
+    """
+    if hist.empty or len(hist) < 5:
+        return 0.0, 0.0, 0.0
+    window = min(lookback_days, len(hist))
+    recent = hist["Close"].tail(window)
+    recent_high = float(recent.max())
+    current = float(hist["Close"].iloc[-1])
+    if recent_high <= 0:
+        return 0.0, 0.0, current
+    drawdown = (recent_high - current) / recent_high
+    return round(max(drawdown, 0.0), 4), round(recent_high, 2), round(current, 2)

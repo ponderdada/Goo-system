@@ -324,27 +324,69 @@ MOBILE_TEMPLATE = """\
   </div>
 </div>
 
-<!-- ===== 模組一 ===== -->
+<!-- ===== 模組一：VIX 恐慌訊號 ===== -->
 <div class="card">
   <div class="card-header">
     <div class="card-icon" style="background: rgba(56,189,248,0.15);">💰</div>
-    <span class="card-title">現金 vs 投資</span>
+    <span class="card-title">VIX 恐慌訊號</span>
   </div>
   <div class="metrics">
     <div class="pill">
       <div class="pill-label">VIX</div>
-      <div class="pill-value" style="color: {% if cash.vix > 25 %}var(--red){% elif cash.vix < 15 %}var(--green){% else %}var(--orange){% endif %}">
+      <div class="pill-value" style="color: {% if cash.vix > 35 %}var(--green){% elif cash.vix > 25 %}var(--accent){% elif cash.vix < 15 %}var(--red){% else %}var(--orange){% endif %}">
         {{ cash.vix }}</div>
     </div>
     <div class="pill">
-      <div class="pill-label">級別</div>
-      <div class="pill-value">{{ cash.vix_level }}</div>
+      <div class="pill-label">恐慌等級</div>
+      <div class="pill-value">{{ {'calm':'平靜','normal':'正常','fear':'恐慌','panic':'極度恐慌'}.get(cash.vix_level, cash.vix_level) }}</div>
     </div>
     <div class="pill">
-      <div class="pill-label">大盤趨勢</div>
-      <div class="pill-value" style="color: {% if cash.is_uptrend %}var(--green){% else %}var(--red){% endif %}">
-        {{ '多頭 ▲' if cash.is_uptrend else '空頭 ▼' }}</div>
+      <div class="pill-label">VIX 建議現金</div>
+      <div class="pill-value">{{ (cash.vix_cash_ratio * 100)|round }}%</div>
     </div>
+  </div>
+  <div class="note" style="font-size: 0.72rem; color: var(--muted);">恐慌越高 → 投入越多（別人恐懼我貪婪）</div>
+</div>
+
+<!-- ===== 模組一-B：回檔深度訊號 ===== -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-icon" style="background: rgba(248,113,113,0.15);">📉</div>
+    <span class="card-title">回檔深度訊號</span>
+  </div>
+  <div class="metrics">
+    <div class="pill">
+      <div class="pill-label">回檔幅度</div>
+      <div class="pill-value" style="color: {% if cash.drawdown_pct > 0.10 %}var(--green){% elif cash.drawdown_pct > 0.05 %}var(--accent){% else %}var(--orange){% endif %}">
+        -{{ (cash.drawdown_pct * 100)|round(1) }}%</div>
+    </div>
+    <div class="pill">
+      <div class="pill-label">回檔等級</div>
+      <div class="pill-value">{{ {'near_high':'接近高點','pullback':'小回檔','correction':'修正','bear':'熊市'}.get(cash.drawdown_level, cash.drawdown_level) }}</div>
+    </div>
+    <div class="pill">
+      <div class="pill-label">回檔建議現金</div>
+      <div class="pill-value">{{ (cash.drawdown_cash_ratio * 100)|round }}%</div>
+    </div>
+  </div>
+  <div class="metrics">
+    <div class="pill">
+      <div class="pill-label">近期高點</div>
+      <div class="pill-value" style="font-size: 0.9rem;">{{ '{:,.0f}'.format(cash.recent_high) }}</div>
+    </div>
+    <div class="pill">
+      <div class="pill-label">目前價位</div>
+      <div class="pill-value" style="font-size: 0.9rem;">{{ '{:,.0f}'.format(cash.current_price) }}</div>
+    </div>
+  </div>
+  <div class="note" style="font-size: 0.72rem; color: var(--muted);">跌越深 → 投入越多（買在回檔）</div>
+</div>
+
+<!-- ===== 綜合現金配置 ===== -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-icon" style="background: rgba(56,189,248,0.15);">⚖️</div>
+    <span class="card-title">綜合現金配置</span>
   </div>
   <div class="bar-wrapper">
     <div class="bar-track">
