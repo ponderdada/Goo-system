@@ -16,11 +16,14 @@ from src.data.market_data import (
     get_batch_history,
 )
 from src.data.news_sentiment import compute_news_proxy_score
+from src.data.stock_names import get_name
+from src.data.watchlist import init_from_config, load as load_watchlist
 
 
 @dataclass
 class StockCandidate:
     symbol: str
+    company_name: str       # 中文名稱
     news_score: float       # 消息面驅動分數 0~1（主排序）
     momentum_score: float   # 動能分數（近季報酬率，次排序）
     rsi: float
@@ -39,8 +42,13 @@ class StockPickResult:
 def decide(config: dict) -> StockPickResult:
     """執行個股排名：消息面為主、預估投報為次。"""
     cfg = config["news_stock_picker"]
-    watch_list = cfg["watch_list"]
     lookback = cfg["lookback_days"]
+
+    # 從持久化觀察清單載入（首次用 settings.yaml 初始化）
+    config_list = cfg["watch_list"]
+    watch_list = init_from_config(config_list)
+    if not watch_list:
+        watch_list = load_watchlist()
 
     all_hist = get_batch_history(watch_list, period="6mo")
 
@@ -85,6 +93,7 @@ def decide(config: dict) -> StockPickResult:
 
         candidates.append(StockCandidate(
             symbol=symbol,
+            company_name=get_name(symbol),
             news_score=news_score,
             momentum_score=round(momentum, 4),
             rsi=round(rsi, 1),

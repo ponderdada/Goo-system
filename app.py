@@ -14,9 +14,10 @@ import time
 import traceback
 
 import yaml
-from flask import Flask, render_template_string
+from flask import Flask, jsonify, render_template_string, request
 
 from src.engines import cash_allocation, industry_report, stock_picker
+from src.data import watchlist as wl
 
 app = Flask(__name__)
 
@@ -291,6 +292,55 @@ MOBILE_TEMPLATE = """\
     white-space: pre-wrap;
     word-break: break-all;
   }
+
+  /* 刪除按鈕 */
+  .del-btn {
+    background: rgba(248,113,113,0.15);
+    border: none;
+    color: var(--red);
+    font-size: 1rem;
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    margin-left: 0.5rem;
+  }
+  .del-btn:active { background: rgba(248,113,113,0.35); }
+
+  /* 新增個股輸入列 */
+  .add-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.8rem;
+    padding-top: 0.8rem;
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
+  .add-input {
+    flex: 1;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    padding: 0.6rem 0.8rem;
+    color: var(--text);
+    font-size: 0.85rem;
+    outline: none;
+  }
+  .add-input::placeholder { color: var(--muted); }
+  .add-input:focus { border-color: var(--accent); }
+  .add-btn {
+    background: rgba(74,222,128,0.15);
+    border: 1px solid rgba(74,222,128,0.3);
+    color: var(--green);
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.6rem 1rem;
+    border-radius: 10px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .add-btn:active { background: rgba(74,222,128,0.3); }
+  .stock-name { font-size: 0.72rem; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -393,23 +443,30 @@ MOBILE_TEMPLATE = """\
   <div class="note" style="margin-bottom: 0.8rem;">{{ picks.reasoning }}</div>
   <div class="stock-list">
     {% for c in picks.candidates %}
-    <div class="stock-item">
+    <div class="stock-item" id="stock-{{ c.symbol }}">
       <div class="stock-left">
         <div class="stock-rank {% if loop.index <= 3 %}top{% else %}normal{% endif %}">
           {{ loop.index }}</div>
         <div>
-          <div class="stock-symbol">{{ c.symbol }}</div>
+          <div class="stock-symbol">{{ c.company_name }} <span class="stock-name">{{ c.symbol }}</span></div>
           <div class="stock-reason">{{ c.reason }}</div>
         </div>
       </div>
-      <div class="stock-right">
-        <div class="stock-score" style="color: {% if loop.index <= 3 %}var(--green){% else %}var(--text){% endif %}">
-          {{ c.composite_score }}</div>
-        <div class="stock-momentum" style="color: {% if c.momentum_score > 0 %}var(--green){% else %}var(--red){% endif %}">
-          {{ (c.momentum_score * 100)|round(1) }}%</div>
+      <div style="display:flex;align-items:center;">
+        <div class="stock-right">
+          <div class="stock-score" style="color: {% if loop.index <= 3 %}var(--green){% else %}var(--text){% endif %}">
+            {{ c.composite_score }}</div>
+          <div class="stock-momentum" style="color: {% if c.momentum_score > 0 %}var(--green){% else %}var(--red){% endif %}">
+            {{ (c.momentum_score * 100)|round(1) }}%</div>
+        </div>
+        <button class="del-btn" onclick="removeStock('{{ c.symbol }}')" title="移除">x</button>
       </div>
     </div>
     {% endfor %}
+  </div>
+  <div class="add-row">
+    <input class="add-input" id="add-symbol" type="text" placeholder="輸入股票代號，例如 2330" />
+    <button class="add-btn" onclick="addStock()">新增</button>
   </div>
 </div>
 
@@ -500,6 +557,43 @@ MOBILE_TEMPLATE = """\
 </div>
 
 </div>
+
+<script>
+function removeStock(symbol) {
+  if (!confirm('確定移除 ' + symbol + '？')) return;
+  fetch('/api/watchlist/remove', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({symbol: symbol})
+  }).then(r => r.json()).then(() => {
+    var el = document.getElementById('stock-' + symbol);
+    if (el) el.style.display = 'none';
+  });
+}
+
+function addStock() {
+  var input = document.getElementById('add-symbol');
+  var sym = input.value.trim();
+  if (!sym) return;
+  input.disabled = true;
+  fetch('/api/watchlist/add', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({symbol: sym})
+  }).then(r => r.json()).then(data => {
+    input.value = '';
+    input.disabled = false;
+    alert(data.added + ' 已新增，下次分析更新時將納入排名。');
+  }).catch(() => {
+    input.disabled = false;
+    alert('新增失敗，請稍後再試');
+  });
+}
+
+document.getElementById('add-symbol')?.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') addStock();
+});
+</script>
 </body>
 </html>
 """
@@ -532,6 +626,34 @@ def api_status():
             "updated_at": _cache["updated_at"].isoformat() if _cache["updated_at"] else None,
             "error": _cache["error"],
         }
+
+
+@app.route("/api/watchlist", methods=["GET"])
+def api_watchlist_get():
+    """取得目前觀察清單。"""
+    return jsonify(wl.load())
+
+
+@app.route("/api/watchlist/add", methods=["POST"])
+def api_watchlist_add():
+    """新增個股到觀察清單。"""
+    data = request.get_json(silent=True) or {}
+    symbol = data.get("symbol", "").strip()
+    if not symbol:
+        return jsonify({"error": "請輸入股票代號"}), 400
+    symbols = wl.add(symbol)
+    return jsonify({"symbols": symbols, "added": symbol.upper()})
+
+
+@app.route("/api/watchlist/remove", methods=["POST"])
+def api_watchlist_remove():
+    """從觀察清單移除個股。"""
+    data = request.get_json(silent=True) or {}
+    symbol = data.get("symbol", "").strip()
+    if not symbol:
+        return jsonify({"error": "請輸入股票代號"}), 400
+    symbols = wl.remove(symbol)
+    return jsonify({"symbols": symbols, "removed": symbol})
 
 
 _scheduler_started = False
